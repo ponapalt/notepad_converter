@@ -12,6 +12,10 @@ class JSONYAMLNotepad:
         # 現在のファイルパス
         self.current_file = None
         
+        # Undo/Redo用の履歴スタック
+        self.undo_stack = []
+        self.redo_stack = []
+        
         # ツールバーフレーム作成
         self.toolbar = Frame(self.root, bd=1, relief=tk.RAISED)
         self.toolbar.pack(side=tk.TOP, fill=tk.X)
@@ -23,9 +27,15 @@ class JSONYAMLNotepad:
         self.yaml_to_json_btn = Button(self.toolbar, text="YAML → JSON", command=self.yaml_to_json)
         self.yaml_to_json_btn.pack(side=tk.LEFT, padx=2, pady=2)
         
-        # テキストエリア作成
-        self.text_area = scrolledtext.ScrolledText(self.root, wrap=tk.WORD, font=("メイリオ", 10))
+        # テキストエリア作成（undo機能を有効化）
+        self.text_area = scrolledtext.ScrolledText(self.root, wrap=tk.WORD, font=("メイリオ", 10), 
+                                                  undo=True, maxundo=1000, autoseparators=True)
         self.text_area.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+        
+        # テキストが変更されたときのイベントを監視
+        self.text_area.bind("<<Modified>>", self.on_text_modified)
+        self.text_area.bind("<Key>", self.on_key_press)
+        self.last_content = ""
         
         # メニューバー作成
         self.menu_bar = Menu(self.root)
@@ -46,8 +56,8 @@ class JSONYAMLNotepad:
         # Editメニュー
         self.edit_menu = Menu(self.menu_bar, tearoff=0)
         self.menu_bar.add_cascade(label="編集", menu=self.edit_menu)
-        self.edit_menu.add_command(label="元に戻す", command=lambda: self.text_area.event_generate("<<Undo>>"), accelerator="Ctrl+Z")
-        self.edit_menu.add_command(label="やり直し", command=lambda: self.text_area.event_generate("<<Redo>>"), accelerator="Ctrl+Y")
+        self.edit_menu.add_command(label="元に戻す", command=self.undo, accelerator="Ctrl+Z")
+        self.edit_menu.add_command(label="やり直し", command=self.redo, accelerator="Ctrl+Y")
         self.edit_menu.add_separator()
         self.edit_menu.add_command(label="切り取り", command=lambda: self.text_area.event_generate("<<Cut>>"), accelerator="Ctrl+X")
         self.edit_menu.add_command(label="コピー", command=lambda: self.text_area.event_generate("<<Copy>>"), accelerator="Ctrl+C")
@@ -97,6 +107,8 @@ class JSONYAMLNotepad:
         self.root.bind("<Control-f>", lambda event: self.find_text())
         self.root.bind("<Control-h>", lambda event: self.replace_text())
         self.root.bind("<Control-a>", lambda event: self.select_all())
+        self.root.bind("<Control-z>", lambda event: self.undo())
+        self.root.bind("<Control-y>", lambda event: self.redo())
         self.root.bind("<F5>", lambda event: self.json_to_yaml())
         self.root.bind("<F6>", lambda event: self.yaml_to_json())
         self.root.bind("<F7>", lambda event: self.format_json())
@@ -104,7 +116,7 @@ class JSONYAMLNotepad:
         
         # 右クリックメニュー
         self.context_menu = Menu(self.root, tearoff=0)
-        self.context_menu.add_command(label="元に戻す", command=lambda: self.text_area.event_generate("<<Undo>>"))
+        self.context_menu.add_command(label="元に戻す", command=self.undo)
         self.context_menu.add_separator()
         self.context_menu.add_command(label="切り取り", command=lambda: self.text_area.event_generate("<<Cut>>"))
         self.context_menu.add_command(label="コピー", command=lambda: self.text_area.event_generate("<<Copy>>"))
@@ -125,11 +137,30 @@ class JSONYAMLNotepad:
         # テキスト変更時に文字数を更新
         self.text_area.bind("<<Modified>>", self.update_char_count)
     
-    def update_char_count(self, event=None):
+    def on_text_modified(self, event=None):
+        """テキストが変更されたときに呼ばれるメソッド"""
         if self.text_area.edit_modified():
             content = self.text_area.get("1.0", tk.END+"-1c")
             self.char_count.config(text=f"文字数: {len(content)}")
+            # 文字数更新後にmodifiedフラグをリセット
             self.text_area.edit_modified(False)
+    
+    def on_key_press(self, event=None):
+        """キー入力時に編集区切りを挿入"""
+        # スペースキーか改行時に編集区切りを挿入
+        if event.char == " " or event.keysym == "Return":
+            self.text_area.edit_separator()
+    
+    def save_undo_state(self):
+        """現在の状態をundo履歴に保存"""
+        current_content = self.text_area.get("1.0", tk.END+"-1c")
+        if current_content != self.last_content:
+            self.text_area.edit_separator()
+            self.last_content = current_content
+            
+    def update_char_count(self, event=None):
+        """文字数を更新（既存メソッドを修正）"""
+        self.on_text_modified()
     
     def show_context_menu(self, event):
         self.context_menu.tk_popup(event.x_root, event.y_root)
@@ -241,7 +272,13 @@ class JSONYAMLNotepad:
     def new_file(self):
         if self.text_area.get("1.0", tk.END+"-1c"):
             if messagebox.askyesno("確認", "内容が保存されていません。新規作成してもよろしいですか？"):
+                # 新規作成前に編集区切りを挿入
+                self.text_area.edit_separator()
                 self.text_area.delete("1.0", tk.END)
+                # 削除後に編集区切りを挿入
+                self.text_area.edit_separator()
+                self.last_content = ""
+                
                 self.current_file = None
                 self.root.title("メモ帳 - JSON/YAML コンバーター")
         else:
@@ -267,8 +304,17 @@ class JSONYAMLNotepad:
             try:
                 with open(file_path, "r", encoding="utf-8") as file:
                     content = file.read()
+                
+                # ファイルを開く前に編集区切りを挿入
+                self.text_area.edit_separator()
+                
                 self.text_area.delete("1.0", tk.END)
                 self.text_area.insert(tk.END, content)
+                
+                # ファイルを開いた後に編集区切りを挿入
+                self.text_area.edit_separator()
+                self.last_content = content
+                
                 self.current_file = file_path
                 self.root.title(f"{file_path} - メモ帳")
                 self.status_bar.config(text=f"ファイルを開きました: {file_path}")
@@ -334,6 +380,9 @@ class JSONYAMLNotepad:
             return
         
         try:
+            # 変換前に編集区切りを挿入
+            self.text_area.edit_separator()
+            
             # JSONをパース
             json_data = json.loads(content)
             # YAMLに変換
@@ -341,6 +390,11 @@ class JSONYAMLNotepad:
             # テキストエリアを更新
             self.text_area.delete("1.0", tk.END)
             self.text_area.insert(tk.END, yaml_data)
+            
+            # 変換後に編集区切りを挿入
+            self.text_area.edit_separator()
+            self.last_content = yaml_data
+            
             self.status_bar.config(text="JSONからYAMLに変換しました")
         except json.JSONDecodeError as e:
             messagebox.showerror("エラー", f"JSONの解析に失敗しました: {str(e)}")
@@ -354,6 +408,9 @@ class JSONYAMLNotepad:
             return
         
         try:
+            # 変換前に編集区切りを挿入
+            self.text_area.edit_separator()
+            
             # YAMLをパース
             yaml_data = yaml.safe_load(content)
             # JSONに変換 (インデント付き)
@@ -361,6 +418,11 @@ class JSONYAMLNotepad:
             # テキストエリアを更新
             self.text_area.delete("1.0", tk.END)
             self.text_area.insert(tk.END, json_data)
+            
+            # 変換後に編集区切りを挿入
+            self.text_area.edit_separator()
+            self.last_content = json_data
+            
             self.status_bar.config(text="YAMLからJSONに変換しました")
         except yaml.YAMLError as e:
             messagebox.showerror("エラー", f"YAMLの解析に失敗しました: {str(e)}")
@@ -374,6 +436,9 @@ class JSONYAMLNotepad:
             return
         
         try:
+            # 変換前に編集区切りを挿入
+            self.text_area.edit_separator()
+            
             # JSONをパース
             json_data = json.loads(content)
             # 整形して出力 (インデント付き)
@@ -381,6 +446,11 @@ class JSONYAMLNotepad:
             # テキストエリアを更新
             self.text_area.delete("1.0", tk.END)
             self.text_area.insert(tk.END, formatted_json)
+            
+            # 変換後に編集区切りを挿入
+            self.text_area.edit_separator()
+            self.last_content = formatted_json
+            
             self.status_bar.config(text="JSONを整形しました")
         except json.JSONDecodeError as e:
             messagebox.showerror("エラー", f"JSONの解析に失敗しました: {str(e)}")
@@ -394,6 +464,9 @@ class JSONYAMLNotepad:
             return
         
         try:
+            # 変換前に編集区切りを挿入
+            self.text_area.edit_separator()
+            
             # YAMLをパース
             yaml_data = yaml.safe_load(content)
             # 整形して出力
@@ -401,6 +474,11 @@ class JSONYAMLNotepad:
             # テキストエリアを更新
             self.text_area.delete("1.0", tk.END)
             self.text_area.insert(tk.END, formatted_yaml)
+            
+            # 変換後に編集区切りを挿入
+            self.text_area.edit_separator()
+            self.last_content = formatted_yaml
+            
             self.status_bar.config(text="YAMLを整形しました")
         except yaml.YAMLError as e:
             messagebox.showerror("エラー", f"YAMLの解析に失敗しました: {str(e)}")
@@ -421,6 +499,32 @@ JSON/YAMLコンバーターの使い方:
 開く、保存などの操作も可能です。
 """
         messagebox.showinfo("ヘルプ", help_text)
+    
+    def undo(self):
+        """元に戻す機能"""
+        try:
+            # まず現在の編集状態を確定
+            self.text_area.edit_separator()
+            # 元に戻す操作を実行
+            self.text_area.edit_undo()
+            # 操作後の内容を記録
+            self.last_content = self.text_area.get("1.0", tk.END+"-1c")
+        except tk.TclError:
+            # 元に戻せない場合は何もしない
+            self.status_bar.config(text="これ以上元に戻せません")
+    
+    def redo(self):
+        """やり直し機能"""
+        try:
+            # まず現在の編集状態を確定
+            self.text_area.edit_separator()
+            # やり直し操作を実行
+            self.text_area.edit_redo()
+            # 操作後の内容を記録
+            self.last_content = self.text_area.get("1.0", tk.END+"-1c")
+        except tk.TclError:
+            # やり直しできない場合は何もしない
+            self.status_bar.config(text="これ以上やり直せません")
     
     def show_about(self):
         messagebox.showinfo("このアプリについて", "JSON/YAML メモ帳 コンバーター\nバージョン 2.0\n\nJSON と YAML を簡単に相互変換できるテキストエディタです。\nメモ帳としての機能も備えています。")
