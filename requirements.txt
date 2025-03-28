@@ -1,1 +1,4 @@
 pyyaml
+dicttoxml
+xmltodict
+tkinterdnd2

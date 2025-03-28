@@ -2,11 +2,17 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, scrolledtext, Menu, Frame, Button
 import json
 import yaml
+# New imports for XML conversion
+import dicttoxml
+import xmltodict
+import xml.dom.minidom as minidom
+# Import for drag and drop support
+from tkinterdnd2 import DND_FILES, TkinterDnD
 
 class JSONYAMLNotepad:
     def __init__(self, root):
         self.root = root
-        self.root.title("メモ帳 - JSON/YAML コンバーター")
+        self.root.title("メモ帳 - JSON/YAML/XML コンバーター")
         self.root.geometry("800x600")
         
         # 現在のファイルパス
@@ -27,10 +33,27 @@ class JSONYAMLNotepad:
         self.yaml_to_json_btn = Button(self.toolbar, text="YAML → JSON", command=self.yaml_to_json)
         self.yaml_to_json_btn.pack(side=tk.LEFT, padx=2, pady=2)
         
+        # XML変換ボタンを追加
+        self.json_to_xml_btn = Button(self.toolbar, text="JSON → XML", command=self.json_to_xml)
+        self.json_to_xml_btn.pack(side=tk.LEFT, padx=2, pady=2)
+        
+        self.xml_to_json_btn = Button(self.toolbar, text="XML → JSON", command=self.xml_to_json)
+        self.xml_to_json_btn.pack(side=tk.LEFT, padx=2, pady=2)
+        
+        self.yaml_to_xml_btn = Button(self.toolbar, text="YAML → XML", command=self.yaml_to_xml)
+        self.yaml_to_xml_btn.pack(side=tk.LEFT, padx=2, pady=2)
+        
+        self.xml_to_yaml_btn = Button(self.toolbar, text="XML → YAML", command=self.xml_to_yaml)
+        self.xml_to_yaml_btn.pack(side=tk.LEFT, padx=2, pady=2)
+        
         # テキストエリア作成（undo機能を有効化）
         self.text_area = scrolledtext.ScrolledText(self.root, wrap=tk.WORD, font=("メイリオ", 10), 
                                                   undo=True, maxundo=1000, autoseparators=True)
         self.text_area.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+        
+        # ドラッグアンドドロップの設定
+        self.text_area.drop_target_register(DND_FILES)
+        self.text_area.dnd_bind('<<Drop>>', self.on_drop)
         
         # テキストが変更されたときのイベントを監視
         self.text_area.bind("<<Modified>>", self.on_text_modified)
@@ -90,6 +113,14 @@ class JSONYAMLNotepad:
         self.convert_menu.add_separator()
         self.convert_menu.add_command(label="JSONフォーマット整形", command=self.format_json, accelerator="F7")
         self.convert_menu.add_command(label="YAMLフォーマット整形", command=self.format_yaml, accelerator="F8")
+        self.convert_menu.add_separator()
+        # XML変換メニュー項目を追加
+        self.convert_menu.add_command(label="JSONからXMLへ変換", command=self.json_to_xml, accelerator="F9")
+        self.convert_menu.add_command(label="XMLからJSONへ変換", command=self.xml_to_json, accelerator="F10")
+        self.convert_menu.add_command(label="YAMLからXMLへ変換", command=self.yaml_to_xml, accelerator="F11")
+        self.convert_menu.add_command(label="XMLからYAMLへ変換", command=self.xml_to_yaml, accelerator="F12")
+        self.convert_menu.add_separator()
+        self.convert_menu.add_command(label="XMLフォーマット整形", command=self.format_xml, accelerator="Ctrl+F12")
         
         # ヘルプメニュー
         self.help_menu = Menu(self.menu_bar, tearoff=0)
@@ -113,6 +144,12 @@ class JSONYAMLNotepad:
         self.root.bind("<F6>", lambda event: self.yaml_to_json())
         self.root.bind("<F7>", lambda event: self.format_json())
         self.root.bind("<F8>", lambda event: self.format_yaml())
+        # XML変換用のキーボードショートカットを追加
+        self.root.bind("<F9>", lambda event: self.json_to_xml())
+        self.root.bind("<F10>", lambda event: self.xml_to_json())
+        self.root.bind("<F11>", lambda event: self.yaml_to_xml())
+        self.root.bind("<F12>", lambda event: self.xml_to_yaml())
+        self.root.bind("<Control-F12>", lambda event: self.format_xml())
         
         # 右クリックメニュー
         self.context_menu = Menu(self.root, tearoff=0)
@@ -280,11 +317,11 @@ class JSONYAMLNotepad:
                 self.last_content = ""
                 
                 self.current_file = None
-                self.root.title("メモ帳 - JSON/YAML コンバーター")
+                self.root.title("メモ帳 - JSON/YAML/XML コンバーター")
         else:
             self.text_area.delete("1.0", tk.END)
             self.current_file = None
-            self.root.title("メモ帳 - JSON/YAML コンバーター")
+            self.root.title("メモ帳 - JSON/YAML/XML コンバーター")
     
     def open_file(self):
         if self.text_area.get("1.0", tk.END+"-1c") and not self.current_file:
@@ -296,11 +333,49 @@ class JSONYAMLNotepad:
                 ("テキストファイル", "*.txt"), 
                 ("JSON ファイル", "*.json"), 
                 ("YAML ファイル", "*.yaml;*.yml"), 
+                ("XML ファイル", "*.xml"),
                 ("すべてのファイル", "*.*")
             ]
         )
         
         if file_path:
+            try:
+                with open(file_path, "r", encoding="utf-8") as file:
+                    content = file.read()
+                
+                # ファイルを開く前に編集区切りを挿入
+                self.text_area.edit_separator()
+                
+                self.text_area.delete("1.0", tk.END)
+                self.text_area.insert(tk.END, content)
+                
+                # ファイルを開いた後に編集区切りを挿入
+                self.text_area.edit_separator()
+                self.last_content = content
+                
+                self.current_file = file_path
+                self.root.title(f"{file_path} - メモ帳")
+                self.status_bar.config(text=f"ファイルを開きました: {file_path}")
+            except Exception as e:
+                messagebox.showerror("エラー", f"ファイルを開けませんでした: {str(e)}")
+    
+    # ドラッグアンドドロップでファイルを開く処理
+    def on_drop(self, event):
+        # イベントからファイルパスを取得
+        file_path = event.data
+        
+        # ファイルパスが引用符で囲まれている場合は取り除く
+        if file_path.startswith('{') and file_path.endswith('}'): 
+            file_path = file_path[1:-1]
+        elif file_path.startswith('"') and file_path.endswith('"'):
+            file_path = file_path[1:-1]
+        
+        # ファイルを開く処理
+        if file_path:
+            if self.text_area.get("1.0", tk.END+"-1c") and not self.current_file:
+                if not messagebox.askyesno("確認", "内容が保存されていません。開いてもよろしいですか？"):
+                    return
+            
             try:
                 with open(file_path, "r", encoding="utf-8") as file:
                     content = file.read()
@@ -342,6 +417,7 @@ class JSONYAMLNotepad:
                 ("テキストファイル", "*.txt"), 
                 ("JSON ファイル", "*.json"), 
                 ("YAML ファイル", "*.yaml;*.yml"), 
+                ("XML ファイル", "*.xml"),
                 ("すべてのファイル", "*.*")
             ]
         )
@@ -372,6 +448,145 @@ class JSONYAMLNotepad:
         self.text_area.mark_set(tk.INSERT, "1.0")
         self.text_area.see(tk.INSERT)
         return "break"
+    
+    # XML変換メソッドを追加
+    def json_to_xml(self):
+        content = self.text_area.get("1.0", tk.END+"-1c")
+        if not content.strip():
+            messagebox.showinfo("情報", "変換するテキストがありません")
+            return
+        
+        try:
+            # 変換前に編集区切りを挿入
+            self.text_area.edit_separator()
+            
+            # JSONをパース
+            json_data = json.loads(content)
+            # XMLに変換
+            xml_data = dicttoxml.dicttoxml(json_data, custom_root='root', attr_type=False)
+            # バイト列を文字列に変換
+            xml_str = xml_data.decode('utf-8')
+            # テキストエリアを更新
+            self.text_area.delete("1.0", tk.END)
+            self.text_area.insert(tk.END, xml_str)
+            
+            # 変換後に編集区切りを挿入
+            self.text_area.edit_separator()
+            self.last_content = xml_str
+            
+            self.status_bar.config(text="JSONからXMLに変換しました")
+        except json.JSONDecodeError as e:
+            messagebox.showerror("エラー", f"JSONの解析に失敗しました: {str(e)}")
+        except Exception as e:
+            messagebox.showerror("エラー", f"変換中にエラーが発生しました: {str(e)}")
+    
+    def xml_to_json(self):
+        content = self.text_area.get("1.0", tk.END+"-1c")
+        if not content.strip():
+            messagebox.showinfo("情報", "変換するテキストがありません")
+            return
+        
+        try:
+            # 変換前に編集区切りを挿入
+            self.text_area.edit_separator()
+            
+            # XMLをパース
+            xml_dict = xmltodict.parse(content)
+            # JSONに変換 (インデント付き)
+            json_data = json.dumps(xml_dict, ensure_ascii=False, indent=2)
+            # テキストエリアを更新
+            self.text_area.delete("1.0", tk.END)
+            self.text_area.insert(tk.END, json_data)
+            
+            # 変換後に編集区切りを挿入
+            self.text_area.edit_separator()
+            self.last_content = json_data
+            
+            self.status_bar.config(text="XMLからJSONに変換しました")
+        except Exception as e:
+            messagebox.showerror("エラー", f"変換中にエラーが発生しました: {str(e)}")
+    
+    def yaml_to_xml(self):
+        content = self.text_area.get("1.0", tk.END+"-1c")
+        if not content.strip():
+            messagebox.showinfo("情報", "変換するテキストがありません")
+            return
+        
+        try:
+            # 変換前に編集区切りを挿入
+            self.text_area.edit_separator()
+            
+            # YAMLをパース
+            yaml_data = yaml.safe_load(content)
+            # XMLに変換
+            xml_data = dicttoxml.dicttoxml(yaml_data, custom_root='root', attr_type=False)
+            # バイト列を文字列に変換
+            xml_str = xml_data.decode('utf-8')
+            # テキストエリアを更新
+            self.text_area.delete("1.0", tk.END)
+            self.text_area.insert(tk.END, xml_str)
+            
+            # 変換後に編集区切りを挿入
+            self.text_area.edit_separator()
+            self.last_content = xml_str
+            
+            self.status_bar.config(text="YAMLからXMLに変換しました")
+        except yaml.YAMLError as e:
+            messagebox.showerror("エラー", f"YAMLの解析に失敗しました: {str(e)}")
+        except Exception as e:
+            messagebox.showerror("エラー", f"変換中にエラーが発生しました: {str(e)}")
+    
+    def xml_to_yaml(self):
+        content = self.text_area.get("1.0", tk.END+"-1c")
+        if not content.strip():
+            messagebox.showinfo("情報", "変換するテキストがありません")
+            return
+        
+        try:
+            # 変換前に編集区切りを挿入
+            self.text_area.edit_separator()
+            
+            # XMLをパース
+            xml_dict = xmltodict.parse(content)
+            # YAMLに変換
+            yaml_data = yaml.dump(xml_dict, allow_unicode=True, sort_keys=False, default_flow_style=False)
+            # テキストエリアを更新
+            self.text_area.delete("1.0", tk.END)
+            self.text_area.insert(tk.END, yaml_data)
+            
+            # 変換後に編集区切りを挿入
+            self.text_area.edit_separator()
+            self.last_content = yaml_data
+            
+            self.status_bar.config(text="XMLからYAMLに変換しました")
+        except Exception as e:
+            messagebox.showerror("エラー", f"変換中にエラーが発生しました: {str(e)}")
+    
+    def format_xml(self):
+        content = self.text_area.get("1.0", tk.END+"-1c")
+        if not content.strip():
+            messagebox.showinfo("情報", "整形するテキストがありません")
+            return
+        
+        try:
+            # 変換前に編集区切りを挿入
+            self.text_area.edit_separator()
+            
+            # XMLをパース
+            dom = minidom.parseString(content)
+            # 整形して出力
+            formatted_xml = dom.toprettyxml(indent="  ")
+            # テキストエリアを更新
+            self.text_area.delete("1.0", tk.END)
+            self.text_area.insert(tk.END, formatted_xml)
+            
+            # 変換後に編集区切りを挿入
+            self.text_area.edit_separator()
+            self.last_content = formatted_xml
+            
+            self.status_bar.config(text="XMLを整形しました")
+        except Exception as e:
+            messagebox.showerror("エラー", f"整形中にエラーが発生しました: {str(e)}")
     
     def json_to_yaml(self):
         content = self.text_area.get("1.0", tk.END+"-1c")
@@ -487,16 +702,27 @@ class JSONYAMLNotepad:
     
     def show_help(self):
         help_text = """
-JSON/YAMLコンバーターの使い方:
+JSON/YAML/XMLコンバーターの使い方:
 
-1. テキストエリアにJSONまたはYAMLデータを入力します。
-2. 「JSON → YAML」または「YAML → JSON」ボタンをクリックするか、
+1. テキストエリアにJSON、YAML、またはXMLデータを入力します。
+2. 変換したい形式に対応するボタンをクリックするか、
    変換メニューから変換したい形式を選択します。
-3. F5キーでJSON→YAML、F6キーでYAML→JSONに変換できます。
-4. F7キーでJSONを整形、F8キーでYAMLを整形できます。
 
-一般的なメモ帳としても使用できます。ファイルの新規作成、
-開く、保存などの操作も可能です。
+ショートカットキー:
+- F5: JSON → YAML
+- F6: YAML → JSON
+- F7: JSONフォーマット整形
+- F8: YAMLフォーマット整形
+- F9: JSON → XML
+- F10: XML → JSON
+- F11: YAML → XML
+- F12: XML → YAML
+- Ctrl+F12: XMLフォーマット整形
+
+その他の機能:
+- ファイルをウィンドウにドラッグ＆ドロップしてファイルを開くことができます。
+- 一般的なメモ帳としても使用できます。ファイルの新規作成、
+  開く、保存などの操作も可能です。
 """
         messagebox.showinfo("ヘルプ", help_text)
     
@@ -527,9 +753,9 @@ JSON/YAMLコンバーターの使い方:
             self.status_bar.config(text="これ以上やり直せません")
     
     def show_about(self):
-        messagebox.showinfo("このアプリについて", "JSON/YAML メモ帳 コンバーター\nバージョン 2.0\n\nJSON と YAML を簡単に相互変換できるテキストエディタです。\nメモ帳としての機能も備えています。")
+        messagebox.showinfo("このアプリについて", "JSON/YAML/XML メモ帳 コンバーター\nバージョン 3.0\n\nJSON、YAML、XMLを簡単に相互変換できるテキストエディタです。\nメモ帳としての機能も備えています。\nドラッグ＆ドロップでファイルを開くことができます。")
 
 if __name__ == "__main__":
-    root = tk.Tk()
+    root = TkinterDnD.Tk()
     app = JSONYAMLNotepad(root)
     root.mainloop()
