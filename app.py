@@ -173,6 +173,9 @@ class JSONYAMLNotepad:
         
         # テキスト変更時に文字数を更新
         self.text_area.bind("<<Modified>>", self.update_char_count)
+
+        # ウィンドウを閉じるときの確認処理を登録
+        self.root.protocol("WM_DELETE_WINDOW", self.exit_app)
     
     def on_text_modified(self, event=None):
         """テキストが変更されたときに呼ばれるメソッド"""
@@ -443,8 +446,15 @@ class JSONYAMLNotepad:
     
     def exit_app(self):
         if self.text_area.edit_modified():
-            if not messagebox.askyesno("確認", "内容が保存されていません。終了してもよろしいですか？"):
+            result = messagebox.askyesnocancel(
+                "確認", "内容が保存されていません。保存しますか？"
+            )
+            if result:  # "はい" の場合
+                if not self.save_file():
+                    return
+            elif result is None:  # "キャンセル" の場合
                 return
+            # "いいえ" の場合はそのまま終了
         self.root.destroy()
     
     def select_all(self, event=None):
