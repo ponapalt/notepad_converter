@@ -307,24 +307,23 @@ class JSONYAMLNotepad:
         messagebox.showinfo("印刷", "印刷機能は現在準備中です")
     
     def new_file(self):
-        if self.text_area.get("1.0", tk.END+"-1c"):
-            if messagebox.askyesno("確認", "内容が保存されていません。新規作成してもよろしいですか？"):
-                # 新規作成前に編集区切りを挿入
-                self.text_area.edit_separator()
-                self.text_area.delete("1.0", tk.END)
-                # 削除後に編集区切りを挿入
-                self.text_area.edit_separator()
-                self.last_content = ""
-                
-                self.current_file = None
-                self.root.title("メモ帳 - JSON/YAML/XML コンバーター")
-        else:
-            self.text_area.delete("1.0", tk.END)
-            self.current_file = None
-            self.root.title("メモ帳 - JSON/YAML/XML コンバーター")
+        if self.text_area.edit_modified():
+            if not messagebox.askyesno("確認", "内容が保存されていません。新規作成してもよろしいですか？"):
+                return
+
+        # 新規作成前に編集区切りを挿入
+        self.text_area.edit_separator()
+        self.text_area.delete("1.0", tk.END)
+        # 削除後に編集区切りを挿入
+        self.text_area.edit_separator()
+        self.last_content = ""
+
+        self.current_file = None
+        self.root.title("メモ帳 - JSON/YAML/XML コンバーター")
+        self.text_area.edit_modified(False)
     
     def open_file(self):
-        if self.text_area.get("1.0", tk.END+"-1c") and not self.current_file:
+        if self.text_area.edit_modified():
             if not messagebox.askyesno("確認", "内容が保存されていません。開いてもよろしいですか？"):
                 return
         
@@ -352,6 +351,7 @@ class JSONYAMLNotepad:
                 # ファイルを開いた後に編集区切りを挿入
                 self.text_area.edit_separator()
                 self.last_content = content
+                self.text_area.edit_modified(False)
                 
                 self.current_file = file_path
                 self.root.title(f"{file_path} - メモ帳")
@@ -372,7 +372,7 @@ class JSONYAMLNotepad:
         
         # ファイルを開く処理
         if file_path:
-            if self.text_area.get("1.0", tk.END+"-1c") and not self.current_file:
+            if self.text_area.edit_modified():
                 if not messagebox.askyesno("確認", "内容が保存されていません。開いてもよろしいですか？"):
                     return
             
@@ -389,7 +389,8 @@ class JSONYAMLNotepad:
                 # ファイルを開いた後に編集区切りを挿入
                 self.text_area.edit_separator()
                 self.last_content = content
-                
+                self.text_area.edit_modified(False)
+
                 self.current_file = file_path
                 self.root.title(f"{file_path} - メモ帳")
                 self.status_bar.config(text=f"ファイルを開きました: {file_path}")
@@ -402,6 +403,8 @@ class JSONYAMLNotepad:
                 content = self.text_area.get("1.0", tk.END+"-1c")
                 with open(self.current_file, "w", encoding="utf-8") as file:
                     file.write(content)
+                self.last_content = content
+                self.text_area.edit_modified(False)
                 self.status_bar.config(text=f"保存しました: {self.current_file}")
                 return True
             except Exception as e:
@@ -428,6 +431,8 @@ class JSONYAMLNotepad:
                 with open(file_path, "w", encoding="utf-8") as file:
                     file.write(content)
                 self.current_file = file_path
+                self.last_content = content
+                self.text_area.edit_modified(False)
                 self.root.title(f"{file_path} - メモ帳")
                 self.status_bar.config(text=f"保存しました: {file_path}")
                 return True
@@ -437,11 +442,10 @@ class JSONYAMLNotepad:
         return False
     
     def exit_app(self):
-        if self.text_area.get("1.0", tk.END+"-1c") and not self.current_file:
-            if messagebox.askyesno("確認", "内容が保存されていません。終了してもよろしいですか？"):
-                self.root.destroy()
-        else:
-            self.root.destroy()
+        if self.text_area.edit_modified():
+            if not messagebox.askyesno("確認", "内容が保存されていません。終了してもよろしいですか？"):
+                return
+        self.root.destroy()
     
     def select_all(self, event=None):
         self.text_area.tag_add(tk.SEL, "1.0", tk.END)
