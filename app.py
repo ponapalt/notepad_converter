@@ -59,6 +59,8 @@ class JSONYAMLNotepad:
         self.text_area.bind("<<Modified>>", self.on_text_modified)
         self.text_area.bind("<Key>", self.on_key_press)
         self.last_content = ""
+        # フラグ: 未保存の変更があるかどうか
+        self.unsaved_changes = False
         
         # メニューバー作成
         self.menu_bar = Menu(self.root)
@@ -182,7 +184,9 @@ class JSONYAMLNotepad:
         if self.text_area.edit_modified():
             content = self.text_area.get("1.0", tk.END+"-1c")
             self.char_count.config(text=f"文字数: {len(content)}")
-            # 文字数更新後にmodifiedフラグをリセット
+            # 未保存フラグをセット
+            self.unsaved_changes = True
+            # 文字数更新後にmodifiedフラグをリセットして次のイベントを受け取る
             self.text_area.edit_modified(False)
     
     def on_key_press(self, event=None):
@@ -310,7 +314,7 @@ class JSONYAMLNotepad:
         messagebox.showinfo("印刷", "印刷機能は現在準備中です")
     
     def new_file(self):
-        if self.text_area.edit_modified():
+        if self.unsaved_changes:
             if not messagebox.askyesno("確認", "内容が保存されていません。新規作成してもよろしいですか？"):
                 return
 
@@ -324,9 +328,10 @@ class JSONYAMLNotepad:
         self.current_file = None
         self.root.title("メモ帳 - JSON/YAML/XML コンバーター")
         self.text_area.edit_modified(False)
+        self.unsaved_changes = False
     
     def open_file(self):
-        if self.text_area.edit_modified():
+        if self.unsaved_changes:
             if not messagebox.askyesno("確認", "内容が保存されていません。開いてもよろしいですか？"):
                 return
         
@@ -355,6 +360,7 @@ class JSONYAMLNotepad:
                 self.text_area.edit_separator()
                 self.last_content = content
                 self.text_area.edit_modified(False)
+                self.unsaved_changes = False
                 
                 self.current_file = file_path
                 self.root.title(f"{file_path} - メモ帳")
@@ -375,7 +381,7 @@ class JSONYAMLNotepad:
         
         # ファイルを開く処理
         if file_path:
-            if self.text_area.edit_modified():
+            if self.unsaved_changes:
                 if not messagebox.askyesno("確認", "内容が保存されていません。開いてもよろしいですか？"):
                     return
             
@@ -393,6 +399,7 @@ class JSONYAMLNotepad:
                 self.text_area.edit_separator()
                 self.last_content = content
                 self.text_area.edit_modified(False)
+                self.unsaved_changes = False
 
                 self.current_file = file_path
                 self.root.title(f"{file_path} - メモ帳")
@@ -408,6 +415,7 @@ class JSONYAMLNotepad:
                     file.write(content)
                 self.last_content = content
                 self.text_area.edit_modified(False)
+                self.unsaved_changes = False
                 self.status_bar.config(text=f"保存しました: {self.current_file}")
                 return True
             except Exception as e:
@@ -436,6 +444,7 @@ class JSONYAMLNotepad:
                 self.current_file = file_path
                 self.last_content = content
                 self.text_area.edit_modified(False)
+                self.unsaved_changes = False
                 self.root.title(f"{file_path} - メモ帳")
                 self.status_bar.config(text=f"保存しました: {file_path}")
                 return True
@@ -445,7 +454,7 @@ class JSONYAMLNotepad:
         return False
     
     def exit_app(self):
-        if self.text_area.edit_modified():
+        if self.unsaved_changes:
             result = messagebox.askyesnocancel(
                 "確認", "内容が保存されていません。保存しますか？"
             )
