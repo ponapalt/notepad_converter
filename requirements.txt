@@ -2,3 +2,4 @@ pyyaml
 dicttoxml
 xmltodict
 tkinterdnd2
+pytest
